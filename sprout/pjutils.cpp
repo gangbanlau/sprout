@@ -166,6 +166,29 @@ pjsip_uri* PJUtils::uri_from_string(const std::string& uri_s,
 }
 
 
+/// Get the URI (either name-addr or addr-spec) from the string header
+/// (e.g., P-Served-User), ignoring any parameters. If it's a bare
+/// addr-spec, assume (like Contact) that parameters belong to the
+/// header, not to the URI.
+///
+/// @return URI, or NULL if cannot be parsed.
+pjsip_uri* PJUtils::uri_from_string_header(pjsip_generic_string_hdr* hdr,
+                                           pj_pool_t *pool)
+{
+  // We must duplicate the string into memory from the specified pool first as
+  // pjsip_parse_uri does not clone the actual strings within the URI.
+  pj_str_t hvalue;
+  pj_strdup_with_null(pool, &hvalue, &hdr->hvalue);
+  char* end = strchr(hvalue.ptr, '>');
+  if (end != NULL)
+  {
+    *(end + 1) = '\0';
+    hvalue.slen = (end + 1 - hvalue.ptr);
+  }
+  return pjsip_parse_uri(pool, hvalue.ptr, hvalue.slen, 0);
+}
+
+
 std::string PJUtils::pj_str_to_string(const pj_str_t* pjstr)
 {
   return (pjstr != NULL) ? std::string(pj_strbuf(pjstr), pj_strlen(pjstr)) : std::string("");
@@ -225,6 +248,37 @@ void PJUtils::add_record_route(pjsip_tx_data* tdata,
   pjsip_msg_insert_first_hdr(tdata->msg, (pjsip_hdr*)rr);
 
   LOG_DEBUG("Added Record-Route header, URI = %s", uri_to_string(PJSIP_URI_IN_ROUTING_HDR, rr->name_addr.uri).c_str());
+}
+
+
+/// Delete all existing copies of a header.  The header to delete must
+/// not be one that has an abbreviation.
+void PJUtils::delete_header(pjsip_msg* msg,
+                            const pj_str_t* name)
+{
+  while (1)
+  {
+    pjsip_hdr* hdr = (pjsip_hdr*)pjsip_msg_find_hdr_by_name(msg, name, NULL);
+    if (hdr)
+    {
+      pj_list_erase(hdr);
+    }
+    else
+    {
+      break;
+    }
+  }
+}
+
+/// Delete all existing copies of a header and replace with a new one.
+/// The header to delete must not be one that has an abbreviation.
+void PJUtils::set_generic_header(pjsip_tx_data* tdata,
+                                 const pj_str_t* name,
+                                 const pj_str_t* value)
+{
+  delete_header(tdata->msg, name);
+  pjsip_generic_string_hdr* new_hdr = pjsip_generic_string_hdr_create(tdata->pool, name, value);
+  pjsip_msg_add_hdr(tdata->msg, (pjsip_hdr*)new_hdr);
 }
 
 
@@ -502,4 +556,27 @@ pjsip_tx_data *PJUtils::clone_tdata(pjsip_tx_data *tdata)
 bool PJUtils::compare_pj_sockaddr(const pj_sockaddr& lhs, const pj_sockaddr& rhs)
 {
   return (pj_sockaddr_cmp(&lhs, &rhs) < 0);
+}
+
+/// Generate a random base64-encoded token.
+void PJUtils::create_random_token(size_t length,       //< Number of characters.
+                                  std::string& token)  //< Destination. Must be empty.
+{
+  token.reserve(length);
+
+  for (size_t ii = 0; ii < length; ++ii)
+  {
+    token += _b64[rand() % 64];
+  }
+}
+
+void PJUtils::clone_header(const pj_str_t* hdr_name, pjsip_msg* old_msg, pjsip_msg* new_msg, pj_pool_t* pool) {
+  pjsip_hdr *original_hdr = NULL;
+  pjsip_hdr *last_hdr = NULL;
+  while ((original_hdr = (pjsip_hdr *)pjsip_msg_find_hdr_by_name(old_msg, hdr_name, original_hdr)) && (last_hdr != original_hdr)) {
+    LOG_INFO("Cloning header! %ld", (long int)original_hdr);
+    pjsip_hdr *new_hdr = (pjsip_hdr *)pjsip_hdr_clone(pool, original_hdr);
+    pjsip_msg_add_hdr(new_msg, new_hdr);
+    last_hdr = original_hdr;
+  }
 }

@@ -51,33 +51,51 @@ extern "C" {
 #include "rapidxml/rapidxml.hpp"
 
 #include "hssconnection.h"
+#include "regdata.h"
 #include "sessioncase.h"
+
+struct AsInvocation
+{
+    std::string server_name;
+    intptr_t default_handling;
+    std::string service_info;
+    bool include_register_request;
+    bool include_register_response;
+};
 
 /// iFC handler.
 class IfcHandler
 {
 public:
-  IfcHandler(HSSConnection* hss);
+  IfcHandler(HSSConnection* hss, RegData::Store* store);
   ~IfcHandler();
 
+  static std::string served_user_from_msg(const SessionCase& session_case,
+                                          pjsip_rx_data* rdata);
+
   void lookup_ifcs(const SessionCase& session_case,
+                   const std::string& served_user,
+                   bool is_registered,
                    pjsip_msg* msg,
                    SAS::TrailId trail,
-                   std::string& served_user,
-                   std::vector<std::string>& application_servers);
+                   std::vector<AsInvocation>& application_servers);
 
 private:
+  static bool spt_matches(const SessionCase& session_case,
+                          bool is_registered,
+                          pjsip_msg *msg,
+                          rapidxml::xml_node<>* spt);
   static bool filter_matches(const SessionCase& session_case,
+                             bool is_registered,
                              pjsip_msg* msg,
                              rapidxml::xml_node<>* ifc);
   static void calculate_application_servers(const SessionCase& session_case,
+                                            bool is_registered,
                                             pjsip_msg* msg,
                                             std::string& ifc_xml,
-                                            std::vector<std::string>& as_list);
-  static std::string served_user_from_msg(const SessionCase& session_case, pjsip_msg *msg);
+                                            std::vector<AsInvocation>& as_list);
   static std::string user_from_uri(pjsip_uri *uri);
 
   HSSConnection* _hss;
+  RegData::Store* _store;
 };
-
-
